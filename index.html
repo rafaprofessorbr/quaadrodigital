@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quadro Digital Final</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background: #f8f9fa; text-align: center; padding: 20px; }
+  #canvas { border: 2px solid #000; border-radius: 10px; background: #fff; cursor: crosshair; touch-action: none; }
+  .handle { width:10px; height:10px; background:red; position:absolute; cursor:nwse-resize; }
+</style>
+</head>
+<body>
+<h3 class="mb-3">🖊️ Quadro Digital Final</h3>
+
+<div class="d-flex justify-content-center flex-wrap gap-2 mb-3">
+  <input type="color" id="colorPicker" value="#000000" class="form-control form-control-color">
+  <input type="range" id="sizePicker" min="1" max="20" value="3" class="form-range" style="width:150px;">
+  <button id="eraserBtn" class="btn btn-secondary btn-sm">🩹 Borracha</button>
+  <button id="moveImgBtn" class="btn btn-info btn-sm">📦 Mover Imagem</button>
+  <button id="resizeImgBtn" class="btn btn-warning btn-sm">🔍 Redimensionar Imagem</button>
+  <input type="file" id="imgLoader" accept="image/*" class="form-control form-control-sm" style="width:180px;">
+  <button id="clearBtn" class="btn btn-danger btn-sm">🧹 Limpar</button>
+  <button id="startRecord" class="btn btn-primary btn-sm">🎬 Gravar</button>
+  <button id="stopRecord" class="btn btn-warning btn-sm" disabled>⏹ Parar</button>
+</div>
+
+<canvas id="canvas" width="900" height="550"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let desenhando=false, cor="#000", tamanho=3;
+let modoBorracha=false, modoMover=false, modoRedim=false;
+
+let img=null, imgX=100, imgY=100, imgW=200, imgH=150;
+let arrastando=false, redim=false;
+let offsetX, offsetY, corner='';
+
+ctx.fillStyle="#FFFFFF";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+
+// Ferramentas
+document.getElementById('colorPicker').addEventListener('change', e=>{ cor=e.target.value; modoBorracha=false; });
+document.getElementById('sizePicker').addEventListener('input', e=>tamanho=e.target.value);
+document.getElementById('eraserBtn').addEventListener('click', ()=>{ modoBorracha=!modoBorracha; });
+document.getElementById('moveImgBtn').addEventListener('click', ()=>{ modoMover=!modoMover; modoRedim=false; });
+document.getElementById('resizeImgBtn').addEventListener('click', ()=>{ modoRedim=!modoRedim; modoMover=false; });
+
+document.getElementById('imgLoader').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const i = new Image();
+  i.onload=()=>{ 
+    img=i; 
+    const scale=Math.min(canvas.width/i.width, canvas.height/i.height,1);
+    imgW=i.width*scale*0.9;
+    imgH=i.height*scale*0.9;
+    imgX=(canvas.width-imgW)/2;
+    imgY=(canvas.height-imgH)/2;
+    desenharTudo();
+  };
+  i.src=URL.createObjectURL(file);
+});
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{ 
+  ctx.fillStyle="#FFF"; ctx.fillRect(0,0,canvas.width,canvas.height); img=null; 
+});
+
+// Funções de desenho
+function iniciar(x,y){
+  if(modoMover && img && dentroImg(x,y)){ arrastando=true; offsetX=x-imgX; offsetY=y-imgY; return; }
+  if(modoRedim && img && dentroImg(x,y)){ redim=true; offsetX=x; offsetY=y; return; }
+  desenhando=true; ctx.beginPath(); ctx.moveTo(x,y);
+}
+
+function desenhar(x,y){
+  if(arrastando){ imgX=x-offsetX; imgY=y-offsetY; desenharTudo(); return; }
+  if(redim){ 
+    const dx=x-offsetX; const dy=y-offsetY; imgW+=dx; imgH+=dy; offsetX=x; offsetY=y; desenharTudo(); return; 
+  }
+  if(!desenhando || modoMover || modoRedim) return;
+  ctx.lineTo(x,y); ctx.strokeStyle=modoBorracha?"#FFF":cor; ctx.lineWidth=tamanho;
+  ctx.lineCap="round"; ctx.lineJoin="round"; ctx.stroke();
+}
+
+function parar(){ desenhando=false; arrastando=false; redim=false; ctx.closePath(); }
+
+function dentroImg(x,y){ return x>=imgX && x<=imgX+imgW && y>=imgY && y<=imgY+imgH; }
+
+function desenharTudo(){
+  ctx.fillStyle="#FFF"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(img) ctx.drawImage(img,imgX,imgY,imgW,imgH);
+}
+
+// Eventos mouse
+canvas.addEventListener('mousedown',e=>iniciar(e.offsetX,e.offsetY));
+canvas.addEventListener('mousemove',e=>desenhar(e.offsetX,e.offsetY));
+canvas.addEventListener('mouseup',parar);
+canvas.addEventListener('mouseout',parar);
+
+// Eventos touch
+canvas.addEventListener('touchstart',e=>{ e.preventDefault(); const t=e.touches[0]; const rect=canvas.getBoundingClientRect(); iniciar(t.clientX-rect.left, t.clientY-rect.top); });
+canvas.addEventListener('touchmove',e=>{ e.preventDefault(); const t=e.touches[0]; const rect=canvas.getBoundingClientRect(); desenhar(t.clientX-rect.left,t.clientY-rect.top); });
+canvas.addEventListener('touchend',parar);
+
+// Gravação
+let mediaRecorder, chunks=[];
+document.getElementById('startRecord').addEventListener('click',async ()=>{
+  const stream=canvas.captureStream(30);
+  mediaRecorder=new MediaRecorder(stream,{mimeType:'video/webm'});
+  mediaRecorder.ondataavailable=e=>chunks.push(e.data);
+  mediaRecorder.onstop=e=>{
+    const blob=new Blob(chunks,{type:'video/webm'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='gravacao_quadro.webm'; a.click(); chunks=[];
+  };
+  mediaRecorder.start();
+  document.getElementById('startRecord').disabled=true;
+  document.getElementById('stopRecord').disabled=false;
+});
+document.getElementById('stopRecord').addEventListener('click',()=>{
+  mediaRecorder.stop();
+  document.getElementById('startRecord').disabled=false;
+  document.getElementById('stopRecord').disabled=true;
+});
+</script>
+</body>
+</html>  queria carregar as imagem ou pdf de uma vez só sem mexer no qu está feito
